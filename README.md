@@ -91,3 +91,95 @@ Catches any exceptions thrown in your async route handlers.
 Logs the full error to your console.
 
 Sends back a JSON 500 with a safe error message
+
+Auth Middleware + A Sample Protected Route
+
+import { JwtPayload } from "jsonwebtoken";
+
+// 1️⃣ Auth middleware
+function authenticateJWT(req: Request, res: Response, next: NextFunction) {
+const auth = req.headers.authorization;
+if (!auth?.startsWith("Bearer ")) {
+return res.status(401).json({ error: "Missing token" });
+}
+
+const token = auth.split(" ")[1];
+
+// 1a) Check blacklist
+if (tokenBlacklist.includes(token)) {
+return res.status(401).json({ error: "Token has been logged out" });
+}
+
+try {
+// 1b) Verify & decode
+const payload = jwt.verify(token, JWT_SECRET) as JwtPayload & { userId: string; email: string };
+// 1c) Attach user info to req
+req.user = { userId: payload.userId, email: payload.email, iat: payload.iat!, exp: payload.exp! };
+next();
+} catch (err) {
+return res.status(401).json({ error: "Invalid or expired token" });
+}
+}
+
+// 2️⃣ Protected route example
+app.get("/protected", authenticateJWT, (req: Request, res: Response) => {
+// req.user is now available
+res.json({
+message: "You accessed a protected endpoint!",
+user: req.user
+});
+});
+
+"authenticateJWT" Middleware
+This function runs before any "protected route"
+
+const auth = req.headers.authorization;
+if (!auth?.startsWith("Bearer ")) {
+return res.status(401).json({ error: "Missing token" });
+}
+Ensures a header like Authorization: Bearer <token> is present.
+If not, immediately returns 401 Unauthorized.
+
+const token = auth.split(" ")[1]; //extract raw token
+
+if (tokenBlacklist.includes(token)) {
+return res.status(401).json({ error: "Token has been logged out" });
+}
+Any token pushed into tokenBlacklist (via your /logout route) is now considered invalid.
+
+const payload = jwt.verify(token, JWT_SECRET)
+as JwtPayload & { userId: string; email: string };
+jwt.verify checks the signature and expiration against JWT_SECRET
+If valid, it returns the decoded payload, which we cast to include our custom claims.
+
+req.user = {
+userId: payload.userId,
+email: payload.email,
+iat: payload.iat!,
+exp: payload.exp!
+};
+next();
+Now downstream handlers can read req.user to know who’s calling.
+
+If verify throws (bad signature or expired), we catch it and return 401.
+
+app.get("/protected", authenticateJWT, (req, res) => {
+res.json({
+message: "You accessed a protected endpoint!",
+user: req.user
+});
+});
+authenticateJWT runs first.
+If it calls next(), we know the token was valid and not blacklisted.
+Inside the handler, req.user holds { userId, email, iat, exp }.
+
+How does this work?
+/register route => registers new user
+
+/login route => helps user login
+
+/logout route => helps user logout
+
+authenticateJWT function => helps authenticate user for protected routes
+
+/protected route => allows user in only the user is authenticated
