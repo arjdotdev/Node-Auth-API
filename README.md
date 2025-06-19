@@ -226,8 +226,39 @@ Accessible **only if user is authenticated**
 
 ---
 
-## 🧪 Sample Token
+jwt.sign(payload, secretOrPrivateKey, [options]) creates or signs a JSON WEB TOKEN.
 
-```
+Payload:
 
-```
+Secret(JWT_SECRET):
+A string used to cryptographically sign the token.
+This can generate or verify valid tokens
+should keep in environment variable
+
+Options ({JWT_EXPIRES_IN}):
+expiresIn can be a string or number.eg: "1h", "30m"
+It sets the token's lifeline and after that jwt.verify reject it
+
+res.json({token})
+You get back "token" which you store in localStorage
+Authorization: Bearer <token>
+
+User logsIn with email/password
+You verify credentials
+You call jwt.sign() with their userId and email
+You return signed token
+Client uses that token to authenticate future requests
+Server uses jwt.verify and the same JWT_SECRET to confirm the token's integrity, expiration and read user info (userId, email)
+
+A JSON Web Token has 3 parts separated by dots:
+
+header.payload.signature
+
+header describes the token type and algorithm
+
+payload: password are sensitive so is not included, claims like "iat"(issued ai), "exp"(expiration) are added automatically when you sign with expiresIn option
+
+Signature: Signature is cryptographic HMAC of the header and payload
+
+const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
+JWT_SECRET is secret that serves uses to sign token and verify token.
