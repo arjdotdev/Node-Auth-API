@@ -226,39 +226,219 @@ Accessible **only if user is authenticated**
 
 ---
 
-jwt.sign(payload, secretOrPrivateKey, [options]) creates or signs a JSON WEB TOKEN.
+# New Notes
 
-Payload:
+# 🛡️ Authentication Workflow in Express (with JWT, bcrypt, express-validator)
 
-Secret(JWT_SECRET):
-A string used to cryptographically sign the token.
-This can generate or verify valid tokens
-should keep in environment variable
+---
 
-Options ({JWT_EXPIRES_IN}):
-expiresIn can be a string or number.eg: "1h", "30m"
-It sets the token's lifeline and after that jwt.verify reject it
+## 🔽 Imports
 
-res.json({token})
-You get back "token" which you store in localStorage
-Authorization: Bearer <token>
+- Import `body`, `validationResult` from `express-validator`
+- Import `bcrypt` from `bcrypt`
+- Import `v4 as uuidv4` from `uuid`
+- Import `jwt` from `jsonwebtoken`
+- Import type `NextFunction`
+- Import type `JwtPayload`
 
-User logsIn with email/password
-You verify credentials
-You call jwt.sign() with their userId and email
-You return signed token
-Client uses that token to authenticate future requests
-Server uses jwt.verify and the same JWT_SECRET to confirm the token's integrity, expiration and read user info (userId, email)
+---
 
-A JSON Web Token has 3 parts separated by dots:
+## 📝 Register Route: Saves user info to database
 
-header.payload.signature
+- **POST** request with 3 arguments:  
+  `route`, `middleware`, and `handler function`
 
-header describes the token type and algorithm
+### ✅ Middleware
 
-payload: password are sensitive so is not included, claims like "iat"(issued ai), "exp"(expiration) are added automatically when you sign with expiresIn option
+- Checks if inputs are valid
 
-Signature: Signature is cryptographic HMAC of the header and payload
+### 🔧 Handler
 
+- Async (since bcrypt is async), so use `try-catch` block
+- Checks error from middleware — if yes, return response with status and json
+
+### ✅ Try Block
+
+- Get input field values using `req.body`
+- Hash password using `await bcrypt`
+- Create an object with `id`, `email`, `hashedPW`, `createdAt`
+- Store it to DB or file
+- Give back response with status and JSON
+
+### ❌ Catch Block
+
+- Catches and handles any error
+
+#### ❓ What does the `next` function do in `catch`?
+
+- Passes error to global error handler middleware for centralized handling
+
+---
+
+## 🔐 Login Route: Verifies credentials → returns JWT token
+
+- **POST** request with 3 arguments: route, middleware, handler
+
+### ✅ Middleware
+
+- Checks if input is valid
+
+### 🔧 Handler
+
+- Async function with `try-catch`
+
+### ✅ Error Check
+
+- If validation errors are present, return `res` with status and json
+
+### ✅ Try Block
+
+- Get `email` and `password` from `req.body`
+- Get user object that has the same email
+
+  - **Problem**: Check if email exists in user array
+  - If not found, return response with status and json
+
+- Compare request password with stored hash using `bcrypt.compare`
+
+  - If `matched` is false, return status and json
+
+- Else: **sign a JWT** and return it
+
+---
+
+## 🧾 How JWT Sign Works
+
+```ts
+jwt.sign(payload, secretOrPrivateKey, [options]);
+```
+
+### 🔸 Payload:
+
+- `{ userId, email }`
+
+### 🔸 Secret (`JWT_SECRET`)
+
+- Used to cryptographically sign and verify the token
+- Should be kept in `.env`
+
+### 🔸 Options
+
+- `{ expiresIn: "1h" }`
+- Sets the token's expiration (e.g., "1h", "30m")
+
+```ts
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
-JWT_SECRET is secret that serves uses to sign token and verify token.
+```
+
+### 🔙 Returns
+
+```ts
+res.json({ token });
+```
+
+- Token should be stored in `localStorage`
+- Sent in future requests as:
+  ```http
+  Authorization: Bearer <token>
+  ```
+
+---
+
+## 🔓 Logout Route: Invalidates JWT by saving token to `blacklist`
+
+- **POST** request with `Authorization` header
+  - Value is `Bearer <token>` from `localStorage`
+
+### ✅ Logic
+
+- Get value from `req.headers.authorization`
+- If it starts with "Bearer", extract token and store it in a `blacklist`
+- Send back a response with JSON
+
+---
+
+## 🔐 AuthenticateJWT Middleware: Validates token before protected routes
+
+- Used to protect any route after login
+
+### ✅ Steps
+
+1. Get `auth` from `req.headers.authorization`  
+   (value from localStorage or client-side)
+
+2. If `auth` is empty or doesn’t start with "Bearer", return `401 Unauthorized`
+
+3. Extract token:
+
+```ts
+const token = auth.split(" ")[1]; // "Bearer <token>" → "<token>"
+```
+
+4. If token is in `tokenBlacklist`, return status and json
+
+5. Use `try-catch`
+
+```ts
+const payload = jwt.verify(token, JWT_SECRET)
+  as JwtPayload & { userId: string; email: string };
+```
+
+6. Attach user info to `req.user`:
+
+```ts
+req.user = {
+  userId: payload.userId,
+  email: payload.email,
+  iat: payload.iat!,
+  exp: payload.exp!,
+};
+```
+
+7. Call `next()` to proceed
+
+8. If token is invalid or expired, return `401 Unauthorized`
+
+---
+
+## 🧪 Protected Route: Can only be accessed with a valid token
+
+```ts
+app.get("/protected", authenticateJWT, (req, res) => {
+  res.json({
+    message: "You accessed a protected endpoint!",
+    user: req.user,
+  });
+});
+```
+
+- `authenticateJWT` runs first
+- If `next()` is called, it means token was valid and not blacklisted
+- `req.user` now contains `{ userId, email, iat, exp }`
+
+---
+
+## 🔐 JWT Token Structure
+
+A JSON Web Token has **3 parts** separated by dots:
+
+```text
+header.payload.signature
+```
+
+### 🔹 Header
+
+- Describes the token type and algorithm
+
+### 🔹 Payload
+
+- Contains claims like:
+  - `iat` (issued at)
+  - `exp` (expiration)
+- Does **not include** sensitive data like password
+
+### 🔹 Signature
+
+- HMAC signature of header + payload
+
+---
