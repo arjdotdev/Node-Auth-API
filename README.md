@@ -358,50 +358,112 @@ res.json({ token });
 
 ---
 
-## 🔐 AuthenticateJWT Middleware: Validates token before protected routes
+## 🔐 AuthenticateJWT Middleware: Verifies token before protected routes
 
 - Used to protect any route after login
 
-### ✅ Steps
-
-1. Get `auth` from `req.headers.authorization`  
-   (value from localStorage or client-side)
-
-2. If `auth` is empty or doesn’t start with "Bearer", return `401 Unauthorized`
-
-3. Extract token:
-
-```ts
-const token = auth.split(" ")[1]; // "Bearer <token>" → "<token>"
-```
-
-4. If token is in `tokenBlacklist`, return status and json
-
-5. Use `try-catch`
-
-```ts
-const payload = jwt.verify(token, JWT_SECRET)
-  as JwtPayload & { userId: string; email: string };
-```
-
-6. Attach user info to `req.user`:
-
-```ts
-req.user = {
-  userId: payload.userId,
-  email: payload.email,
-  iat: payload.iat!,
-  exp: payload.exp!,
-};
-```
-
-7. Call `next()` to proceed
-
-8. If token is invalid or expired, return `401 Unauthorized`
+### ✅ Steps (authenticateJWT Middleware)
 
 ---
 
-## 🧪 Protected Route: Can only be accessed with a valid token
+1. **Get `auth` from `req.headers.authorization`**
+   - Value comes from `localStorage` or client-side
+
+---
+
+2. **Check if `auth` is missing or malformed**
+   - If `auth` is empty or doesn’t start with `"Bearer"`, return `401 Unauthorized`
+
+---
+
+3. **Extract the token**
+
+   **Problem**: How to extract only the token from `"Bearer <Token>"`?  
+   **Solution**: Use the string method `split(" ")` and get the second element (index `1`):
+
+   ```ts
+   const token = auth.split(" ")[1]; // "Bearer <token>" → "<token>"
+   ```
+
+---
+
+4. **Check if token is blacklisted**
+
+   **Problem**: How to check if token exists in `tokenBlacklist`?  
+   **Solution**: Use `array.includes()`:
+
+   ```ts
+   if (tokenBlacklist.includes(token)) {
+     return res.status(401).json({ error: "Token has been logged out" });
+   }
+   ```
+
+---
+
+5. **Verify the token using `try-catch`**
+
+   ```ts
+   const payload = jwt.verify(token, JWT_SECRET)
+     as JwtPayload & { userId: string; email: string };
+   ```
+
+   - `jwt.verify(token, JWT_SECRET)` checks if the token’s signature was signed with `JWT_SECRET`
+   - The result (`payload`) is a plain JavaScript object with fields like `userId`, `email`, `iat`, and `exp`
+
+---
+
+### 🧠 TypeScript Concepts
+
+- **Intersection of Types**:  
+  Tells TypeScript that the payload includes both `JwtPayload` and custom properties:
+
+  ```ts
+  as JwtPayload & { userId: string; email: string }
+  ```
+
+- **Not Null Assertion (`!`)**:  
+  You assert that the value definitely exists.  
+  Opposite of optional chaining (`?.`):
+
+  ```ts
+  exp: payload.exp!;
+  ```
+
+---
+
+6. **Attach user info to `req.user`**
+
+   - We store user info on the request object to avoid decoding the JWT in every route
+
+   ```ts
+   req.user = {
+     userId: payload.userId,
+     email: payload.email,
+     iat: payload.iat!,
+     exp: payload.exp!,
+   };
+   ```
+
+---
+
+7. **Call `next()` to proceed**
+
+   - `next()` passes control to the next middleware or route handler
+   - If you don’t call `next()`, the request will hang
+
+---
+
+8. **Catch invalid or expired token**
+
+   - If `jwt.verify` throws, return:
+
+   ```ts
+   return res.status(401).json({ error: "Invalid or expired token" });
+   ```
+
+---
+
+## 🧪 Protected Route Example
 
 ```ts
 app.get("/protected", authenticateJWT, (req, res) => {
@@ -412,33 +474,39 @@ app.get("/protected", authenticateJWT, (req, res) => {
 });
 ```
 
-- `authenticateJWT` runs first
-- If `next()` is called, it means token was valid and not blacklisted
-- `req.user` now contains `{ userId, email, iat, exp }`
+- `authenticateJWT` middleware runs first
+- If it calls `next()`, token is valid and not blacklisted
+- `req.user` contains `{ userId, email, iat, exp }`
 
 ---
 
 ## 🔐 JWT Token Structure
 
-A JSON Web Token has **3 parts** separated by dots:
+A JSON Web Token has **3 parts**, separated by dots:
 
 ```text
 header.payload.signature
 ```
 
+---
+
 ### 🔹 Header
 
-- Describes the token type and algorithm
+- Describes the token type and algorithm used
+
+---
 
 ### 🔹 Payload
 
-- Contains claims like:
+- Contains **claims** like:
   - `iat` (issued at)
-  - `exp` (expiration)
-- Does **not include** sensitive data like password
+  - `exp` (expiration time)
+- **Sensitive data like password is not included**
+
+---
 
 ### 🔹 Signature
 
-- HMAC signature of header + payload
+- Cryptographic HMAC of the header and payload, using `JWT_SECRET`
 
 ---
